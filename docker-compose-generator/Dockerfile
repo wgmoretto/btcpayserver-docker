@@ -1,37 +1,40 @@
-#
+# Primeira etapa da construção usando a imagem de SDK específica para compilação
+# Definindo a plataforma para garantir compatibilidade cruzada
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0.101-bookworm-slim AS builder
+
+# Configurando o diretório de trabalho no container de construção
 WORKDIR /source
+
+# Copiando apenas o arquivo de projeto .csproj inicialmente para aproveitar o cache de camadas do Docker
 COPY src/docker-compose-generator.csproj docker-compose-generator.csproj
 
-# Dockerfile ajustado
-# Usando a imagem base oficial do .NET
-FROM mcr.microsoft.com/dotnet/sdk:latest
+# Restaurando as dependências especificadas no arquivo .csproj
+RUN dotnet restore docker-compose-generator.csproj
 
-# Definindo o diretório de trabalho
-WORKDIR /app
+# Copiando os demais arquivos do projeto para o container
+COPY src/ .
 
-# Cache some dependencies
-RUN dotnet restore
+# Publicando o aplicativo para o diretório /app em modo Release
+RUN dotnet publish -c Release -o /app
 
-# Copiando o diretório src, certifique-se de que 'src' está no contexto de construção
-# Se 'src' não existir, este comando falhará
-COPY src/. .
-
-# Publicando a aplicação para a pasta /app em modo Release
-RUN dotnet publish --output /app/ --configuration Release
-
-# Sua aplicação .NET agora está pronta para ser executada com a base da imagem runtime
-
-#
+# Segunda etapa da construção usando a imagem de Runtime para executar o aplicativo
 FROM mcr.microsoft.com/dotnet/runtime:8.0.1-bookworm-slim
+
+# Definindo metadados via rótulos (opcional)
 LABEL org.btcpayserver.image=docker-compose-generator
-WORKDIR /datadir
-WORKDIR /app
+
+# Configurando variáveis de ambiente necessárias
+ENV INSIDE_CONTAINER=1
 ENV APP_DATADIR=/datadir
+
+# Definindo o diretório de trabalho para /app
+WORKDIR /app
+
+# Criando um volume apontando para /datadir
 VOLUME /datadir
 
-ENV INSIDE_CONTAINER=1
+# Copiando o aplicativo publicado do container de construção para o container de runtime
+COPY --from=builder /app .
 
-COPY --from=builder "/app" .
-
+# Definindo o ponto de entrada para o container
 ENTRYPOINT ["dotnet", "docker-compose-generator.dll"]
